@@ -11,6 +11,7 @@ import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.addCallback
+import androidx.appcompat.widget.SearchView
 import androidx.core.view.isVisible
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -21,11 +22,17 @@ import androidx.recyclerview.widget.RecyclerView
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.MainScope
+import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.yield
 import sushi.hardcore.droidfs.BaseActivity
 import sushi.hardcore.droidfs.Constants
@@ -51,8 +58,18 @@ import sushi.hardcore.droidfs.filesystems.Stat
 import sushi.hardcore.droidfs.util.PathUtils
 import sushi.hardcore.droidfs.util.finishOnClose
 import sushi.hardcore.droidfs.widgets.EditTextDialog
+import kotlin.coroutines.coroutineContext
 
 open class BaseExplorerActivity : BaseActivity(), ExplorerElementAdapter.Listener {
+    private data class CachedSearchIndex(
+        val rootPath: String,
+        val index: RecursiveFileNameSearch.Index,
+    )
+
+    private companion object {
+        const val SEARCH_DEBOUNCE_MS = 250L
+    }
+
     private lateinit var sortOrderEntries: Array<String>
     private lateinit var sortOrderValues: Array<String>
     private var foldersFirst = true
@@ -72,6 +89,7 @@ open class BaseExplorerActivity : BaseActivity(), ExplorerElementAdapter.Listene
     protected val activityScope = MainScope()
     private var directoryLoadingTask: Job? = null
     protected lateinit var explorerElements: MutableList<ExplorerElement>
+    private var currentDirectoryElements: List<ExplorerElement> = emptyList()
     protected lateinit var explorerAdapter: ExplorerElementAdapter
     protected lateinit var app: VolumeManagerApp
     private var usf_open = false
@@ -86,6 +104,13 @@ open class BaseExplorerActivity : BaseActivity(), ExplorerElementAdapter.Listene
     private lateinit var numberOfFilesText: TextView
     private lateinit var numberOfFoldersText: TextView
     private lateinit var totalSizeText: TextView
+    private var searchItem: MenuItem? = null
+    private var isSearchExpanded = false
+    private var activeSearchQuery = ""
+    private var searchRequestTask: Job? = null
+    private var searchIndexTask: Deferred<RecursiveFileNameSearch.Index?>? = null
+    private var searchIndexRootPath: String? = null
+    private var cachedSearchIndex: CachedSearchIndex? = null
     protected val fileShare by lazy { FileShare(this) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -129,7 +154,9 @@ open class BaseExplorerActivity : BaseActivity(), ExplorerElementAdapter.Listene
         layoutIcon = findViewById(R.id.layout_icon)
         setRecyclerViewLayout()
         onBackPressedDispatcher.addCallback(this) {
-            if (explorerAdapter.selectedItems.isEmpty()) {
+            if (isSearchExpanded) {
+                searchItem?.collapseActionView()
+            } else if (explorerAdapter.selectedItems.isEmpty()) {
                 val parentPath = PathUtils.getParentPath(currentDirectoryPath)
                 if (parentPath == currentDirectoryPath) {
                     isEnabled = false
@@ -334,12 +361,112 @@ open class BaseExplorerActivity : BaseActivity(), ExplorerElementAdapter.Listene
         invalidateOptionsMenu()
     }
 
-    private fun displayExplorerElements() {
+    private fun displayExplorerElements(
+        elements: List<ExplorerElement> = currentDirectoryElements,
+        emptyTextResId: Int = R.string.dir_empty,
+    ) {
+        explorerElements = elements.toMutableList()
         ExplorerElement.sortBy(sortOrderValues[currentSortOrderIndex], foldersFirst, explorerElements)
         unselectAll(false)
         loader.isVisible = false
-        recycler_view_explorer.isVisible = true
+        recycler_view_explorer.isVisible = explorerElements.isNotEmpty()
+        textDirEmpty.setText(emptyTextResId)
+        textDirEmpty.isVisible = explorerElements.isEmpty()
         explorerAdapter.explorerElements = explorerElements
+    }
+
+    private fun cancelSearchWork(clearCachedIndex: Boolean) {
+        searchRequestTask?.cancel()
+        searchRequestTask = null
+        searchIndexTask?.cancel()
+        searchIndexTask = null
+        searchIndexRootPath = null
+        if (clearCachedIndex) {
+            cachedSearchIndex = null
+        }
+    }
+
+    private suspend fun getSearchIndex(rootPath: String): RecursiveFileNameSearch.Index? {
+        cachedSearchIndex?.takeIf { it.rootPath == rootPath }?.let {
+            return it.index
+        }
+
+        val indexTask = searchIndexTask?.takeIf { searchIndexRootPath == rootPath }
+            ?: lifecycleScope.async(Dispatchers.IO) {
+                RecursiveFileNameSearch(encryptedVolume::readDir).buildIndex(rootPath) {
+                    coroutineContext.isActive
+                }
+            }.also {
+                searchIndexTask = it
+                searchIndexRootPath = rootPath
+            }
+        val index = indexTask.await()
+        coroutineContext.ensureActive()
+        if (index != null && searchIndexRootPath == rootPath) {
+            cachedSearchIndex = CachedSearchIndex(rootPath, index)
+        }
+        return index
+    }
+
+    private fun searchRecursively(query: String, debounce: Boolean = true) {
+        searchRequestTask?.cancel()
+        if (query.isEmpty()) {
+            displayExplorerElements()
+            return
+        }
+
+        val rootPath = currentDirectoryPath
+        searchRequestTask = lifecycleScope.launch {
+            if (debounce) {
+                delay(SEARCH_DEBOUNCE_MS)
+            }
+            val index = getSearchIndex(rootPath) ?: return@launch
+            ensureActive()
+            if (!isSearchExpanded || rootPath != currentDirectoryPath || query != activeSearchQuery) {
+                return@launch
+            }
+            val results = withContext(Dispatchers.Default) {
+                RecursiveFileNameSearch(encryptedVolume::readDir).filter(index, query)
+            }
+            ensureActive()
+            displayExplorerElements(results, R.string.no_search_results)
+        }
+    }
+
+    private fun configureSearch(menu: Menu, noItemSelected: Boolean) {
+        val item = menu.findItem(R.id.search) ?: return
+        searchItem = item
+        item.isVisible = noItemSelected
+        val searchView = item.actionView as? SearchView ?: return
+        searchView.queryHint = getString(R.string.search_files_and_folders)
+        searchView.setOnQueryTextListener(object : SearchView.OnQueryTextListener {
+            override fun onQueryTextSubmit(query: String): Boolean = true
+
+            override fun onQueryTextChange(newText: String): Boolean {
+                activeSearchQuery = newText
+                if (isSearchExpanded) {
+                    searchRecursively(newText)
+                }
+                return true
+            }
+        })
+        item.setOnActionExpandListener(object : MenuItem.OnActionExpandListener {
+            override fun onMenuItemActionExpand(menuItem: MenuItem): Boolean {
+                isSearchExpanded = true
+                if (activeSearchQuery.isNotEmpty()) {
+                    searchRecursively(activeSearchQuery, debounce = false)
+                }
+                return true
+            }
+
+            override fun onMenuItemActionCollapse(menuItem: MenuItem): Boolean {
+                isSearchExpanded = false
+                activeSearchQuery = ""
+                cancelSearchWork(clearCachedIndex = true)
+                displayExplorerElements()
+                return true
+            }
+        })
     }
 
     private suspend fun recursiveSetSize(directory: ExplorerElement) {
@@ -368,6 +495,9 @@ open class BaseExplorerActivity : BaseActivity(), ExplorerElementAdapter.Listene
     }
 
     protected fun changeCurrentDirectory(path: String) {
+        if (isSearchExpanded) {
+            searchItem?.collapseActionView()
+        }
         currentDirectoryPath = path
         refreshCurrentDirectory {
             recycler_view_explorer.scrollToPosition(0)
@@ -376,22 +506,24 @@ open class BaseExplorerActivity : BaseActivity(), ExplorerElementAdapter.Listene
 
     protected fun refreshCurrentDirectory(onDisplayed: (() -> Unit)? = null) = lifecycleScope.launch {
         directoryLoadingTask?.cancelAndJoin()
+        cancelSearchWork(clearCachedIndex = true)
         recycler_view_explorer.isVisible = false
         loader.isVisible = true
-        explorerElements = encryptedVolume.readDir(currentDirectoryPath) ?: return@launch
+        currentDirectoryElements = encryptedVolume.readDir(currentDirectoryPath) ?: return@launch
         if (currentDirectoryPath != "/") {
-            explorerElements.add(
-                0,
-                ExplorerElement("..", Stat.parentFolderStat(), parentPath = currentDirectoryPath)
-            )
+            currentDirectoryElements = currentDirectoryElements.toMutableList().apply {
+                add(
+                    0,
+                    ExplorerElement("..", Stat.parentFolderStat(), parentPath = currentDirectoryPath),
+                )
+            }
         }
-        textDirEmpty.visibility = if (explorerElements.size == 0) View.VISIBLE else View.GONE
-        displayNumberOfElements(numberOfFilesText, R.string.one_file, R.string.multiple_files, explorerElements.count { it.isRegularFile })
-        displayNumberOfElements(numberOfFoldersText, R.string.one_folder, R.string.multiple_folders, explorerElements.count { it.isDirectory })
+        displayNumberOfElements(numberOfFilesText, R.string.one_file, R.string.multiple_files, currentDirectoryElements.count { it.isRegularFile })
+        displayNumberOfElements(numberOfFoldersText, R.string.one_folder, R.string.multiple_folders, currentDirectoryElements.count { it.isDirectory })
         if (mapFolders) {
             var totalSize: Long = 0
             directoryLoadingTask = launch(Dispatchers.IO) {
-                for (element in explorerElements) {
+                for (element in currentDirectoryElements) {
                     if (element.isDirectory) {
                         recursiveSetSize(element)
                     }
@@ -406,9 +538,12 @@ open class BaseExplorerActivity : BaseActivity(), ExplorerElementAdapter.Listene
             displayExplorerElements()
             totalSizeText.text = getString(
                 R.string.total_size,
-                PathUtils.formatSize(explorerElements.filter { !it.isParentFolder }.sumOf { it.stat.size })
+                PathUtils.formatSize(currentDirectoryElements.filter { !it.isParentFolder }.sumOf { it.stat.size })
             )
             onDisplayed?.invoke()
+        }
+        if (isSearchExpanded && activeSearchQuery.isNotEmpty()) {
+            searchRecursively(activeSearchQuery, debounce = false)
         }
     }
 
@@ -571,7 +706,7 @@ open class BaseExplorerActivity : BaseActivity(), ExplorerElementAdapter.Listene
                 val dstPath = if (newName.startsWith("/")) {
                     newName
                 } else {
-                    PathUtils.pathJoin(currentDirectoryPath, newName)
+                    PathUtils.pathJoin(element.parentPath, newName)
                 }
                 val lastComponent = newName.substringAfterLast('/')
                 // if a directory is explicitly requested, rename into it with the original file name
@@ -635,6 +770,7 @@ open class BaseExplorerActivity : BaseActivity(), ExplorerElementAdapter.Listene
             menu.findItem(R.id.external_open)?.isVisible = false
         }
         val noItemSelected = explorerAdapter.selectedItems.isEmpty()
+        configureSearch(menu, noItemSelected)
         menu.findItem(R.id.sort).isVisible = noItemSelected
         menu.findItem(R.id.lock).isVisible = noItemSelected
         menu.findItem(R.id.close).isVisible = noItemSelected
@@ -666,7 +802,11 @@ open class BaseExplorerActivity : BaseActivity(), ExplorerElementAdapter.Listene
                             currentSortOrderIndex = which
                             // displayExplorerElements must not be called if directoryLoadingTask is active
                             if (directoryLoadingTask?.isActive != true) {
-                                displayExplorerElements()
+                                if (isSearchExpanded && activeSearchQuery.isNotEmpty()) {
+                                    searchRecursively(activeSearchQuery, debounce = false)
+                                } else {
+                                    displayExplorerElements()
+                                }
                             }
                             val sharedPrefsEditor = sharedPrefs.edit()
                             sharedPrefsEditor.putString(Constants.SORT_ORDER_KEY, sortOrderValues[currentSortOrderIndex])

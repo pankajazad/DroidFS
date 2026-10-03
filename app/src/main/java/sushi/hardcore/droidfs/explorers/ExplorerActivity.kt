@@ -242,6 +242,7 @@ class ExplorerActivity : BaseExplorerActivity() {
         val result = super.onCreateOptionsMenu(menu)
         if (currentItemAction != ItemsActions.NONE) {
             menu.findItem(R.id.validate).isVisible = true
+            menu.findItem(R.id.search).isVisible = false
             menu.findItem(R.id.lock).isVisible = false
             menu.findItem(R.id.close).isVisible = false
             supportActionBar?.setDisplayHomeAsUpEnabled(true)

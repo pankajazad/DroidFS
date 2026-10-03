@@ -10,6 +10,9 @@
     <string name="discovering_files">Discovering files…</string>
     <string name="mkdir">Create folder</string>
     <string name="dir_empty">Directory Empty</string>
+    <string name="search">Search</string>
+    <string name="search_files_and_folders">Search files and folders</string>
+    <string name="no_search_results">No matching files or folders</string>
     <string name="warning">Warning !</string>
     <string name="ask_lock_volume">Are you sure you want to lock this volume ?</string>
     <string name="ok">OK</string>

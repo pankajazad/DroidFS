@@ -9,6 +9,13 @@
         android:title="@string/rename"/>
 
     <item
+        android:id="@+id/search"
+        android:title="@string/search"
+        android:icon="@drawable/icon_folder_search"
+        app:actionViewClass="androidx.appcompat.widget.SearchView"
+        app:showAsAction="ifRoom|collapseActionView" />
+
+    <item
         android:id="@+id/validate"
         app:showAsAction="always"
         android:icon="@drawable/icon_check"/>
