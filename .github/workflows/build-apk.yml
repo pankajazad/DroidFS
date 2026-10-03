@@ -38,16 +38,26 @@ jobs:
           go-version-file: app/libgocryptfs/go.mod
           cache-dependency-path: app/libgocryptfs/go.sum
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
       - name: Install Android build tools
-        run: >-
-          sdkmanager --install
-          "platforms;android-37.0"
-          "build-tools;37.0.0"
-          "ndk;28.2.13676358"
-          "cmake;4.1.2"
+        shell: bash
+        run: |
+          export ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          echo "ANDROID_HOME=$ANDROID_HOME" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$ANDROID_HOME" >> "$GITHUB_ENV"
+
+          if command -v sdkmanager >/dev/null; then
+            SDKMANAGER="$(command -v sdkmanager)"
+          else
+            SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager -print -quit)"
+          fi
+          test -n "$SDKMANAGER"
+
+          "$SDKMANAGER" --licenses < <(yes) >/dev/null
+          "$SDKMANAGER" --install \
+            "platforms;android-37.0" \
+            "build-tools;37.0.0" \
+            "ndk;28.2.13676358" \
+            "cmake;4.1.2" < <(yes)
 
       - name: Install native build prerequisites
         run: |
