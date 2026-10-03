@@ -1,0 +1,75 @@
+name: Build APK
+
+on:
+  push:
+    branches:
+      - feature/recursive-filename-search
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: droidfs-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Check out the triggering commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          submodules: recursive
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: app/libgocryptfs/go.mod
+          cache-dependency-path: app/libgocryptfs/go.sum
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android build tools
+        run: >-
+          sdkmanager --install
+          "platforms;android-37.0"
+          "build-tools;37.0.0"
+          "ndk;28.2.13676358"
+          "cmake;4.1.2"
+
+      - name: Install native build prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes build-essential pkg-config wget npm
+
+      - name: Build FFmpeg and gocryptfs for arm64-v8a
+        run: |
+          export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/28.2.13676358"
+          ./app/ffmpeg/build.sh arm64-v8a
+          ./app/libgocryptfs/build.sh arm64-v8a
+
+      - name: Test and assemble the APK
+        run: >-
+          ./gradlew :app:testDebugUnitTest :app:assembleDebug
+          -Pabi=arm64-v8a
+          --stacktrace
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: DroidFS-arm64-v8a-debug-${{ github.sha }}
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 14
