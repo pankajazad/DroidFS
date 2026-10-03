@@ -13,6 +13,8 @@ import android.widget.Toast
 import androidx.activity.addCallback
 import androidx.appcompat.widget.SearchView
 import androidx.core.view.isVisible
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowCompat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
@@ -433,12 +435,29 @@ open class BaseExplorerActivity : BaseActivity(), ExplorerElementAdapter.Listene
         }
     }
 
+    private fun focusSearchInput(searchView: SearchView) {
+        searchView.post {
+            if (!isSearchExpanded) {
+                return@post
+            }
+            searchView.isIconified = false
+            val queryField = searchView.findViewById<View>(androidx.appcompat.R.id.search_src_text)
+            queryField.requestFocus()
+            WindowCompat.getInsetsController(window, queryField).show(WindowInsetsCompat.Type.ime())
+        }
+    }
+
     private fun configureSearch(menu: Menu, noItemSelected: Boolean) {
         val item = menu.findItem(R.id.search) ?: return
         searchItem = item
         item.isVisible = noItemSelected
         val searchView = item.actionView as? SearchView ?: return
         searchView.queryHint = getString(R.string.search_files_and_folders)
+        item.setOnMenuItemClickListener {
+            item.expandActionView()
+            focusSearchInput(searchView)
+            true
+        }
         searchView.setOnQueryTextListener(object : SearchView.OnQueryTextListener {
             override fun onQueryTextSubmit(query: String): Boolean = true
 
@@ -453,6 +472,7 @@ open class BaseExplorerActivity : BaseActivity(), ExplorerElementAdapter.Listene
         item.setOnActionExpandListener(object : MenuItem.OnActionExpandListener {
             override fun onMenuItemActionExpand(menuItem: MenuItem): Boolean {
                 isSearchExpanded = true
+                focusSearchInput(searchView)
                 if (activeSearchQuery.isNotEmpty()) {
                     searchRecursively(activeSearchQuery, debounce = false)
                 }
