@@ -12,6 +12,7 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.addCallback
 import androidx.core.view.isVisible
+import androidx.appcompat.widget.SearchView
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
@@ -75,6 +76,8 @@ open class BaseExplorerActivity : BaseActivity(), ExplorerElementAdapter.Listene
     private var directoryRefreshJob: Job? = null
     private var activeSearchQuery: String? = null
     protected lateinit var explorerElements: MutableList<ExplorerElement>
+    private var allDirectoryElements: MutableList<ExplorerElement> = mutableListOf()
+    private var searchQuery = ""
     protected lateinit var explorerAdapter: ExplorerElementAdapter
     protected lateinit var app: VolumeManagerApp
     private var usf_open = false
@@ -338,6 +341,18 @@ open class BaseExplorerActivity : BaseActivity(), ExplorerElementAdapter.Listene
         invalidateOptionsMenu()
     }
 
+    private fun applySearchFilter() {
+        val query = searchQuery.trim()
+        explorerElements = if (query.isEmpty()) {
+            allDirectoryElements.toMutableList()
+        } else {
+            allDirectoryElements.filter { element ->
+                element.isParentFolder || element.name.contains(query, ignoreCase = true)
+            }.toMutableList()
+        }
+        textDirEmpty.visibility = if (explorerElements.isEmpty()) View.VISIBLE else View.GONE
+    }
+
     private fun displayExplorerElements() {
         ExplorerElement.sortBy(sortOrderValues[currentSortOrderIndex], foldersFirst, explorerElements)
         unselectAll(false)
@@ -427,16 +442,15 @@ open class BaseExplorerActivity : BaseActivity(), ExplorerElementAdapter.Listene
             previousJob?.cancelAndJoin()
             recycler_view_explorer.isVisible = false
             loader.isVisible = true
-            explorerElements = encryptedVolume.readDir(currentDirectoryPath) ?: return@launch
+            allDirectoryElements = encryptedVolume.readDir(currentDirectoryPath) ?: return@launch
             if (currentDirectoryPath != "/") {
-                explorerElements.add(
+                allDirectoryElements.add(
                     0,
                     ExplorerElement("..", Stat.parentFolderStat(), parentPath = currentDirectoryPath)
                 )
             }
-            textDirEmpty.visibility = if (explorerElements.size == 0) View.VISIBLE else View.GONE
-            displayNumberOfElements(numberOfFilesText, R.string.one_file, R.string.multiple_files, explorerElements.count { it.isRegularFile })
-            displayNumberOfElements(numberOfFoldersText, R.string.one_folder, R.string.multiple_folders, explorerElements.count { it.isDirectory })
+            displayNumberOfElements(numberOfFilesText, R.string.one_file, R.string.multiple_files, allDirectoryElements.count { it.isRegularFile })
+            displayNumberOfElements(numberOfFoldersText, R.string.one_folder, R.string.multiple_folders, allDirectoryElements.count { it.isDirectory })
             var totalSize: Long = 0
             if (mapFolders) {
                 withContext(Dispatchers.IO) {
@@ -450,6 +464,7 @@ open class BaseExplorerActivity : BaseActivity(), ExplorerElementAdapter.Listene
             } else {
                 totalSize = explorerElements.filter { !it.isParentFolder }.sumOf { it.stat.size }
             }
+            applySearchFilter()
             displayExplorerElements()
             totalSizeText.text = getString(R.string.total_size, PathUtils.formatSize(totalSize))
             onDisplayed?.invoke()
@@ -673,6 +688,38 @@ open class BaseExplorerActivity : BaseActivity(), ExplorerElementAdapter.Listene
     }
 
     override fun onCreateOptionsMenu(menu: Menu): Boolean {
+        val searchItem = menu.findItem(R.id.search_files)
+        val searchView = searchItem.actionView as SearchView
+        searchView.queryHint = getString(R.string.search_files_hint)
+        searchView.setOnQueryTextListener(object : SearchView.OnQueryTextListener {
+            override fun onQueryTextSubmit(query: String?): Boolean {
+                searchQuery = query.orEmpty()
+                applySearchFilter()
+                displayExplorerElements()
+                searchView.clearFocus()
+                return true
+            }
+
+            override fun onQueryTextChange(newText: String?): Boolean {
+                searchQuery = newText.orEmpty()
+                applySearchFilter()
+                if (::explorerElements.isInitialized && ::explorerAdapter.isInitialized) {
+                    displayExplorerElements()
+                }
+                return true
+            }
+        })
+        searchItem.setOnActionExpandListener(object : MenuItem.OnActionExpandListener {
+            override fun onMenuItemActionExpand(item: MenuItem): Boolean = true
+            override fun onMenuItemActionCollapse(item: MenuItem): Boolean {
+                searchQuery = ""
+                if (::explorerElements.isInitialized && ::explorerAdapter.isInitialized) {
+                    applySearchFilter()
+                    displayExplorerElements()
+                }
+                return true
+            }
+        })
         menu.findItem(R.id.rename).isVisible = false
         menu.findItem(R.id.open_as)?.isVisible = false
         if (usf_open){
