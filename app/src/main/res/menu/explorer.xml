@@ -74,6 +74,13 @@
         android:icon="@drawable/icon_paste"/>
 
     <item
+        android:id="@+id/search"
+        app:showAsAction="ifRoom"
+        android:title="@string/search_files"
+        android:icon="@drawable/icon_folder_search"
+        app:iconTint="?attr/menuIconColor"/>
+
+    <item
         android:id="@+id/sort"
         app:showAsAction="ifRoom"
         android:title="@string/sort_by"
