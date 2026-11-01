@@ -68,7 +68,8 @@
 
     <item
         android:id="@+id/search_files"
-        app:showAsAction="ifRoom"
+        app:showAsAction="ifRoom|collapseActionView"
+        app:actionViewClass="androidx.appcompat.widget.SearchView"
         android:title="@string/search_files"
         android:icon="@drawable/icon_folder_search"
         app:iconTint="?attr/menuIconColor"/>
