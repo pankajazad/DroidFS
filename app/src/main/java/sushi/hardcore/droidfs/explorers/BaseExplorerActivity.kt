@@ -28,6 +28,7 @@ import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.yield
+import java.util.Locale
 import sushi.hardcore.droidfs.BaseActivity
 import sushi.hardcore.droidfs.Constants
 import sushi.hardcore.droidfs.EncryptedFileProvider
@@ -72,6 +73,7 @@ open class BaseExplorerActivity : BaseActivity(), ExplorerElementAdapter.Listene
     protected lateinit var fileOperationService: FileOperationService
     protected val activityScope = MainScope()
     private var directoryRefreshJob: Job? = null
+    private var activeSearchQuery: String? = null
     protected lateinit var explorerElements: MutableList<ExplorerElement>
     protected lateinit var explorerAdapter: ExplorerElementAdapter
     protected lateinit var app: VolumeManagerApp
@@ -370,10 +372,53 @@ open class BaseExplorerActivity : BaseActivity(), ExplorerElementAdapter.Listene
     }
 
     protected fun changeCurrentDirectory(path: String) {
+        activeSearchQuery = null
         currentDirectoryPath = path
         refreshCurrentDirectory {
             recycler_view_explorer.scrollToPosition(0)
         }
+    }
+
+    private fun startFileSearch(query: String) {
+        val normalizedQuery = query.trim()
+        if (normalizedQuery.isEmpty()) return
+        activeSearchQuery = normalizedQuery
+        directoryRefreshJob?.cancel()
+        directoryRefreshJob = lifecycleScope.launch {
+            recycler_view_explorer.isVisible = false
+            loader.isVisible = true
+            val results = withContext(Dispatchers.IO) {
+                val found = mutableListOf<ExplorerElement>()
+                val pending = ArrayDeque<String>()
+                pending.add("/")
+                val needle = normalizedQuery.lowercase(Locale.ROOT)
+                while (pending.isNotEmpty()) {
+                    val directory = pending.removeLast()
+                    val children = encryptedVolume.readDir(directory) ?: continue
+                    for (child in children) {
+                        if (child.name.lowercase(Locale.ROOT).contains(needle)) {
+                            found.add(child)
+                        }
+                        if (child.isDirectory) pending.add(child.fullPath)
+                    }
+                    yield()
+                }
+                found
+            }
+            explorerElements = results
+            currentPathText.text = getString(R.string.search_results_for, normalizedQuery)
+            textDirEmpty.visibility = if (results.isEmpty()) View.VISIBLE else View.GONE
+            displayNumberOfElements(numberOfFilesText, R.string.one_file, R.string.multiple_files, results.count { it.isRegularFile })
+            displayNumberOfElements(numberOfFoldersText, R.string.one_folder, R.string.multiple_folders, results.count { it.isDirectory })
+            totalSizeText.text = getString(R.string.search_result_count, results.size)
+            displayExplorerElements()
+        }
+    }
+
+    private fun showFileSearchDialog() {
+        EditTextDialog(this, R.string.search_files)
+            .onSubmit { query -> startFileSearch(query) }
+            .show()
     }
 
     protected fun refreshCurrentDirectory(onDisplayed: (() -> Unit)? = null) {
@@ -634,6 +679,7 @@ open class BaseExplorerActivity : BaseActivity(), ExplorerElementAdapter.Listene
             menu.findItem(R.id.external_open)?.isVisible = false
         }
         val noItemSelected = explorerAdapter.selectedItems.isEmpty()
+        menu.findItem(R.id.search).isVisible = noItemSelected
         menu.findItem(R.id.sort).isVisible = noItemSelected
         menu.findItem(R.id.lock).isVisible = noItemSelected
         menu.findItem(R.id.close).isVisible = noItemSelected
@@ -656,6 +702,10 @@ open class BaseExplorerActivity : BaseActivity(), ExplorerElementAdapter.Listene
         return when (item.itemId) {
             android.R.id.home -> {
                 unselectAll()
+                true
+            }
+            R.id.search -> {
+                showFileSearchDialog()
                 true
             }
             R.id.sort -> {
