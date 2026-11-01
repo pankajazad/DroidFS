@@ -11,9 +11,7 @@ import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.addCallback
-import androidx.appcompat.widget.SearchView
 import androidx.core.view.isVisible
-import androidx.appcompat.widget.SearchView
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
@@ -76,9 +74,6 @@ open class BaseExplorerActivity : BaseActivity(), ExplorerElementAdapter.Listene
     protected lateinit var fileOperationService: FileOperationService
     protected val activityScope = MainScope()
     private var directoryRefreshJob: Job? = null
-    private var searchJob: Job? = null
-    private var searchMode = false
-    private var activeSearchQuery = ""
     private var activeSearchQuery: String? = null
     protected lateinit var explorerElements: MutableList<ExplorerElement>
     private var allDirectoryElements: MutableList<ExplorerElement> = mutableListOf()
@@ -313,15 +308,6 @@ open class BaseExplorerActivity : BaseActivity(), ExplorerElementAdapter.Listene
 
     override fun onExplorerElementClick(position: Int) {
         if (explorerAdapter.selectedItems.isEmpty()) {
-            if (searchMode) {
-                val result = explorerElements[position]
-                if (result.isDirectory) {
-                    searchMode = false
-                    activeSearchQuery = ""
-                    changeCurrentDirectory(result.fullPath)
-                    return
-                }
-            }
             val fullPath = explorerElements[position].fullPath
             when {
                 explorerElements[position].isDirectory -> {
@@ -370,49 +356,6 @@ open class BaseExplorerActivity : BaseActivity(), ExplorerElementAdapter.Listene
             }.toMutableList()
         }
         textDirEmpty.visibility = if (explorerElements.isEmpty()) View.VISIBLE else View.GONE
-    }
-
-    private fun performFileSearch(query: String) {
-        activeSearchQuery = query
-        searchMode = query.isNotBlank()
-        searchJob?.cancel()
-        if (!searchMode) {
-            refreshCurrentDirectory()
-            return
-        }
-        searchJob = lifecycleScope.launch {
-            recycler_view_explorer.isVisible = false
-            textDirEmpty.isVisible = false
-            loader.isVisible = true
-            val matches = withContext(Dispatchers.IO) {
-                val found = mutableListOf<ExplorerElement>()
-                val pending = ArrayDeque<String>()
-                pending.add("/")
-                val normalizedQuery = query.trim()
-                while (pending.isNotEmpty()) {
-                    val dir = pending.removeLast()
-                    val children = encryptedVolume.readDir(dir) ?: continue
-                    for (child in children) {
-                        if (child.name.contains(normalizedQuery, ignoreCase = true)) {
-                            found.add(child)
-                        }
-                        if (child.isDirectory) {
-                            pending.add(child.fullPath)
-                        }
-                        yield()
-                    }
-                }
-                found
-            }
-            if (!searchMode || activeSearchQuery != query) return@launch
-            explorerElements = matches
-            displayExplorerElements()
-            textDirEmpty.isVisible = matches.isEmpty()
-            currentPathText.text = getString(R.string.search_results_for, query)
-            displayNumberOfElements(numberOfFilesText, R.string.one_file, R.string.multiple_files, matches.count { it.isRegularFile })
-            displayNumberOfElements(numberOfFoldersText, R.string.one_folder, R.string.multiple_folders, matches.count { it.isDirectory })
-            totalSizeText.text = getString(R.string.search_result_count, matches.size)
-        }
     }
 
     private fun displayExplorerElements() {
@@ -500,10 +443,6 @@ open class BaseExplorerActivity : BaseActivity(), ExplorerElementAdapter.Listene
     }
 
     protected fun refreshCurrentDirectory(onDisplayed: (() -> Unit)? = null) {
-        if (searchMode && activeSearchQuery.isNotBlank()) {
-            performFileSearch(activeSearchQuery)
-            return
-        }
         val previousJob = directoryRefreshJob
         directoryRefreshJob = lifecycleScope.launch {
             previousJob?.cancelAndJoin()
@@ -795,7 +734,6 @@ open class BaseExplorerActivity : BaseActivity(), ExplorerElementAdapter.Listene
         val noItemSelected = explorerAdapter.selectedItems.isEmpty()
         menu.findItem(R.id.search).isVisible = noItemSelected
         menu.findItem(R.id.sort).isVisible = noItemSelected && !searchMode
-        menu.findItem(R.id.search_files)?.isVisible = noItemSelected
         menu.findItem(R.id.lock).isVisible = noItemSelected
         menu.findItem(R.id.close).isVisible = noItemSelected
         supportActionBar?.setDisplayHomeAsUpEnabled(!noItemSelected)
@@ -815,33 +753,6 @@ open class BaseExplorerActivity : BaseActivity(), ExplorerElementAdapter.Listene
 
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
         return when (item.itemId) {
-            R.id.search_files -> {
-                val searchView = item.actionView as? SearchView
-                searchView?.queryHint = getString(R.string.search_files_hint)
-                searchView?.setOnQueryTextListener(object : SearchView.OnQueryTextListener {
-                    override fun onQueryTextSubmit(query: String?): Boolean {
-                        query?.let { performFileSearch(it) }
-                        searchView.clearFocus()
-                        return true
-                    }
-                    override fun onQueryTextChange(newText: String?): Boolean {
-                        performFileSearch(newText.orEmpty())
-                        return true
-                    }
-                })
-                item.setOnActionExpandListener(object : MenuItem.OnActionExpandListener {
-                    override fun onMenuItemActionExpand(item: MenuItem): Boolean = true
-                    override fun onMenuItemActionCollapse(item: MenuItem): Boolean {
-                        searchJob?.cancel()
-                        searchMode = false
-                        activeSearchQuery = ""
-                        currentPathText.text = getString(R.string.location, currentDirectoryPath)
-                        refreshCurrentDirectory()
-                        return true
-                    }
-                })
-                true
-            }
             android.R.id.home -> {
                 unselectAll()
                 true
