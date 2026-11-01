@@ -137,11 +137,6 @@ open class BaseExplorerActivity : BaseActivity(), ExplorerElementAdapter.Listene
         setRecyclerViewLayout()
         onBackPressedDispatcher.addCallback(this) {
             if (explorerAdapter.selectedItems.isEmpty()) {
-                if (activeSearchQuery != null) {
-                    activeSearchQuery = null
-                    refreshCurrentDirectory()
-                    return@addCallback
-                }
                 val parentPath = PathUtils.getParentPath(currentDirectoryPath)
                 if (parentPath == currentDirectoryPath) {
                     isEnabled = false
@@ -665,7 +660,6 @@ open class BaseExplorerActivity : BaseActivity(), ExplorerElementAdapter.Listene
             setOnQueryTextListener(object : SearchView.OnQueryTextListener {
                 override fun onQueryTextSubmit(query: String): Boolean {
                     startFileSearch(query)
-                    clearFocus()
                     return true
                 }
 
@@ -674,6 +668,10 @@ open class BaseExplorerActivity : BaseActivity(), ExplorerElementAdapter.Listene
                     return true
                 }
             })
+            setOnCloseListener {
+                searchItem.collapseActionView()
+                true
+            }
         }
         searchItem.actionView = searchView
         searchItem.setOnActionExpandListener(object : MenuItem.OnActionExpandListener {
