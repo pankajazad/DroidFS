@@ -690,6 +690,9 @@ open class BaseExplorerActivity : BaseActivity(), ExplorerElementAdapter.Listene
                 return true
             }
         })
+        searchView.findViewById<View>(androidx.appcompat.R.id.search_close_btn)?.setOnClickListener {
+            searchItem.collapseActionView()
+        }
         menu.findItem(R.id.sort).isVisible = noItemSelected && activeSearchQuery == null
         menu.findItem(R.id.lock).isVisible = noItemSelected
         menu.findItem(R.id.close).isVisible = noItemSelected
