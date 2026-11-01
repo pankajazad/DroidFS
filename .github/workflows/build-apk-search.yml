@@ -63,15 +63,15 @@ jobs:
           chmod +x build.sh
           ./build.sh
 
-      - name: Build release APKs
-        run: ./gradlew --no-daemon assembleRelease
+      - name: Build arm64 release APK
+        run: ./gradlew --no-daemon assembleRelease -Pabi=arm64-v8a
 
-      - name: Upload APKs
+      - name: Upload arm64 APK
         id: upload
         uses: actions/upload-artifact@v4
         with:
           name: DroidFS-search-${{ github.sha }}
-          path: app/build/outputs/apk/release/*.apk
+          path: app/build/outputs/apk/release/*arm64-v8a.apk
           if-no-files-found: error
           retention-days: 30
 
@@ -84,4 +84,4 @@ jobs:
           echo "- Commit: `${GITHUB_SHA}`" >> "$GITHUB_STEP_SUMMARY"
           echo "- [Download APK artifact](${{ steps.upload.outputs.artifact-url }})" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "The artifact contains the release APKs for the branch head. The link is available from this workflow run and expires after 30 days."
+          echo "The artifact contains the arm64-v8a release APK for the branch head. The link is available from this workflow run and expires after 30 days."
