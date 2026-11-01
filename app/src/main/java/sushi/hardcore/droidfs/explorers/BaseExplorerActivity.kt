@@ -6,6 +6,7 @@ import android.os.Bundle
 import android.view.Menu
 import android.view.MenuItem
 import android.view.View
+import android.widget.EditText
 import android.widget.ImageButton
 import android.widget.ProgressBar
 import android.widget.TextView
@@ -383,6 +384,27 @@ open class BaseExplorerActivity : BaseActivity(), ExplorerElementAdapter.Listene
         refreshCurrentDirectory {
             recycler_view_explorer.scrollToPosition(0)
         }
+    }
+
+    private fun showFileSearchDialog() {
+        val input = EditText(this).apply {
+            hint = getString(R.string.search_files)
+            setSingleLine(true)
+            setText(activeSearchQuery.orEmpty())
+            setSelection(text.length)
+        }
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.search_files)
+            .setView(input)
+            .setPositiveButton(R.string.ok) { _, _ ->
+                startFileSearch(input.text.toString())
+            }
+            .setNeutralButton(R.string.clear) { _, _ ->
+                activeSearchQuery = null
+                refreshCurrentDirectory()
+            }
+            .setNegativeButton(R.string.cancel, null)
+            .show()
     }
 
     private fun startFileSearch(query: String) {
