@@ -343,7 +343,9 @@ open class BaseExplorerActivity : BaseActivity(), ExplorerElementAdapter.Listene
 
     protected fun unselectAll(notifyChange: Boolean = true) {
         explorerAdapter.unSelectAll(notifyChange)
-        invalidateOptionsMenu()
+        if (notifyChange) {
+            invalidateOptionsMenu()
+        }
     }
 
     private fun displayExplorerElements() {
