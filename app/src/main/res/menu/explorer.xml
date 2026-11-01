@@ -67,11 +67,10 @@
         android:icon="@drawable/icon_paste"/>
 
     <item
-        android:id="@+id/search_files"
-        app:showAsAction="ifRoom|collapseActionView"
+        android:id="@+id/search"
+        app:showAsAction="ifRoom"
         android:title="@string/search_files"
         android:icon="@drawable/icon_folder_search"
-        app:actionViewClass="androidx.appcompat.widget.SearchView"
         app:iconTint="?attr/menuIconColor"/>
 
     <item
