@@ -304,8 +304,4 @@
     <string name="aspect_ratio">Aspect ratio:</string>
     <string name="propose_wipe_imported_files">Propose to wipe imported files</string>
     <string name="propose_wipe_imported_files_summary">After importing files, ask whether to wipe them from the source</string>
-    <string name="search_files">Search files</string>
-    <string name="search_files_hint">Search file and folder names</string>
-    <string name="search_results_for">Results for: %1$s</string>
-    <string name="search_result_count">%1$d results</string>
 </resources>
