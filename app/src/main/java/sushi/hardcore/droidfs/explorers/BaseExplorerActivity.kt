@@ -30,6 +30,7 @@ import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.yield
+import java.util.ArrayDeque
 import java.util.Locale
 import sushi.hardcore.droidfs.BaseActivity
 import sushi.hardcore.droidfs.Constants
@@ -141,6 +142,11 @@ open class BaseExplorerActivity : BaseActivity(), ExplorerElementAdapter.Listene
         setRecyclerViewLayout()
         onBackPressedDispatcher.addCallback(this) {
             if (explorerAdapter.selectedItems.isEmpty()) {
+                if (activeSearchQuery != null) {
+                    activeSearchQuery = null
+                    refreshCurrentDirectory()
+                    return@addCallback
+                }
                 val parentPath = PathUtils.getParentPath(currentDirectoryPath)
                 if (parentPath == currentDirectoryPath) {
                     isEnabled = false
@@ -164,7 +170,7 @@ open class BaseExplorerActivity : BaseActivity(), ExplorerElementAdapter.Listene
         refresher.setOnRefreshListener {
             val prefix = if (currentDirectoryPath == "/") "/" else "$currentDirectoryPath/"
             app.volumeManager.evictImageCache(volumeId) { it.startsWith(prefix) }
-            refreshCurrentDirectory()
+            activeSearchQuery?.let { startFileSearch(it) } ?: refreshCurrentDirectory()
             refresher.isRefreshing = false
         }
         bindFileOperationService()
@@ -454,8 +460,9 @@ open class BaseExplorerActivity : BaseActivity(), ExplorerElementAdapter.Listene
         val normalizedQuery = query.trim()
         if (normalizedQuery.isEmpty()) return
         activeSearchQuery = normalizedQuery
-        directoryRefreshJob?.cancel()
+        val previousJob = directoryRefreshJob
         directoryRefreshJob = lifecycleScope.launch {
+            previousJob?.cancelAndJoin()
             recycler_view_explorer.isVisible = false
             loader.isVisible = true
             val results = withContext(Dispatchers.IO) {
