@@ -699,18 +699,18 @@ open class BaseExplorerActivity : BaseActivity(), ExplorerElementAdapter.Listene
         searchView.queryHint = getString(R.string.search_files_hint)
         searchView.setOnQueryTextListener(object : SearchView.OnQueryTextListener {
             override fun onQueryTextSubmit(query: String?): Boolean {
-                searchQuery = query.orEmpty()
-                applySearchFilter()
-                displayExplorerElements()
+                startFileSearch(query.orEmpty())
                 searchView.clearFocus()
                 return true
             }
 
             override fun onQueryTextChange(newText: String?): Boolean {
-                searchQuery = newText.orEmpty()
-                applySearchFilter()
-                if (::explorerElements.isInitialized && ::explorerAdapter.isInitialized) {
-                    displayExplorerElements()
+                val query = newText.orEmpty()
+                if (query.isBlank()) {
+                    activeSearchQuery = null
+                    refreshCurrentDirectory()
+                } else {
+                    startFileSearch(query)
                 }
                 return true
             }
@@ -718,11 +718,9 @@ open class BaseExplorerActivity : BaseActivity(), ExplorerElementAdapter.Listene
         searchItem.setOnActionExpandListener(object : MenuItem.OnActionExpandListener {
             override fun onMenuItemActionExpand(item: MenuItem): Boolean = true
             override fun onMenuItemActionCollapse(item: MenuItem): Boolean {
-                searchQuery = ""
-                if (::explorerElements.isInitialized && ::explorerAdapter.isInitialized) {
-                    applySearchFilter()
-                    displayExplorerElements()
-                }
+                activeSearchQuery = null
+                currentPathText.text = getString(R.string.location, currentDirectoryPath)
+                refreshCurrentDirectory()
                 return true
             }
         })
@@ -732,8 +730,8 @@ open class BaseExplorerActivity : BaseActivity(), ExplorerElementAdapter.Listene
             menu.findItem(R.id.external_open)?.isVisible = false
         }
         val noItemSelected = explorerAdapter.selectedItems.isEmpty()
-        menu.findItem(R.id.search).isVisible = noItemSelected
-        menu.findItem(R.id.sort).isVisible = noItemSelected && !searchMode
+        menu.findItem(R.id.search_files).isVisible = noItemSelected
+        menu.findItem(R.id.sort).isVisible = noItemSelected && activeSearchQuery == null
         menu.findItem(R.id.lock).isVisible = noItemSelected
         menu.findItem(R.id.close).isVisible = noItemSelected
         supportActionBar?.setDisplayHomeAsUpEnabled(!noItemSelected)
