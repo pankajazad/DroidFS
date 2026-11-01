@@ -57,6 +57,12 @@ jobs:
           chmod +x build.sh
           ./build.sh
 
+      - name: Build libgocryptfs
+        run: |
+          cd app/libgocryptfs
+          chmod +x build.sh
+          ./build.sh
+
       - name: Build release APKs
         run: ./gradlew --no-daemon assembleRelease
 
