@@ -11,6 +11,7 @@ import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.addCallback
+import androidx.appcompat.widget.SearchView
 import androidx.core.view.isVisible
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -443,6 +444,7 @@ open class BaseExplorerActivity : BaseActivity(), ExplorerElementAdapter.Listene
     }
 
     protected fun refreshCurrentDirectory(onDisplayed: (() -> Unit)? = null) {
+        activeSearchQuery?.let { startFileSearch(it); return }
         val previousJob = directoryRefreshJob
         directoryRefreshJob = lifecycleScope.launch {
             previousJob?.cancelAndJoin()
@@ -633,10 +635,11 @@ open class BaseExplorerActivity : BaseActivity(), ExplorerElementAdapter.Listene
                     showRenameDialog(element, element.name)
                     return@onSubmit
                 }
+                val basePath = element.parentPath
                 val dstPath = if (newName.startsWith("/")) {
                     newName
                 } else {
-                    PathUtils.pathJoin(currentDirectoryPath, newName)
+                    PathUtils.pathJoin(basePath, newName)
                 }
                 val lastComponent = newName.substringAfterLast('/')
                 // if a directory is explicitly requested, rename into it with the original file name
