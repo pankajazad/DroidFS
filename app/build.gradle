@@ -74,6 +74,8 @@ android {
 
     buildTypes {
         release {
+            // CI release APKs use the standard debug key unless a release keystore is configured.
+            signingConfig signingConfigs.debug
             minifyEnabled true
             shrinkResources true
             proguardFiles 'proguard-rules.pro'
