@@ -3,12 +3,6 @@
     xmlns:app="http://schemas.android.com/apk/res-auto">
 
     <item
-        android:id="@+id/search_files"
-        android:title="@string/search_files"
-        app:showAsAction="ifRoom|collapseActionView"
-        app:actionViewClass="androidx.appcompat.widget.SearchView" />
-
-    <item
         android:id="@+id/select_all"
         app:showAsAction="always"
         android:visible="false"
