@@ -6,12 +6,13 @@ import android.os.Bundle
 import android.view.Menu
 import android.view.MenuItem
 import android.view.View
-import android.widget.EditText
 import android.widget.ImageButton
+import android.view.inputmethod.InputMethodManager
 import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.addCallback
+import androidx.appcompat.widget.SearchView
 import androidx.core.view.isVisible
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -386,27 +387,6 @@ open class BaseExplorerActivity : BaseActivity(), ExplorerElementAdapter.Listene
         }
     }
 
-    private fun showFileSearchDialog() {
-        val input = EditText(this).apply {
-            hint = getString(R.string.search_files)
-            setSingleLine(true)
-            setText(activeSearchQuery.orEmpty())
-            setSelection(text.length)
-        }
-        MaterialAlertDialogBuilder(this)
-            .setTitle(R.string.search_files)
-            .setView(input)
-            .setPositiveButton(R.string.ok) { _, _ ->
-                startFileSearch(input.text.toString())
-            }
-            .setNeutralButton(R.string.clear) { _, _ ->
-                activeSearchQuery = null
-                refreshCurrentDirectory()
-            }
-            .setNegativeButton(R.string.cancel, null)
-            .show()
-    }
-
     private fun startFileSearch(query: String) {
         activeSearchQuery = query.trim().takeIf { it.isNotEmpty() }
         refreshCurrentDirectory()
@@ -674,7 +654,42 @@ open class BaseExplorerActivity : BaseActivity(), ExplorerElementAdapter.Listene
             menu.findItem(R.id.external_open)?.isVisible = false
         }
         val noItemSelected = explorerAdapter.selectedItems.isEmpty()
-        menu.findItem(R.id.search_files).isVisible = noItemSelected
+        val searchItem = menu.findItem(R.id.search_files)
+        searchItem.isVisible = noItemSelected
+        val searchView = SearchView(this).apply {
+            queryHint = getString(R.string.search_files)
+            setIconifiedByDefault(true)
+            setQuery(activeSearchQuery.orEmpty(), false)
+            setOnQueryTextListener(object : SearchView.OnQueryTextListener {
+                override fun onQueryTextSubmit(query: String): Boolean {
+                    startFileSearch(query)
+                    clearFocus()
+                    return true
+                }
+
+                override fun onQueryTextChange(newText: String): Boolean {
+                    startFileSearch(newText)
+                    return true
+                }
+            })
+        }
+        searchItem.actionView = searchView
+        searchItem.setOnActionExpandListener(object : MenuItem.OnActionExpandListener {
+            override fun onMenuItemActionExpand(item: MenuItem): Boolean {
+                searchView.post {
+                    searchView.requestFocus()
+                    (getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager)
+                        .showSoftInput(searchView, InputMethodManager.SHOW_IMPLICIT)
+                }
+                return true
+            }
+
+            override fun onMenuItemActionCollapse(item: MenuItem): Boolean {
+                activeSearchQuery = null
+                refreshCurrentDirectory()
+                return true
+            }
+        })
         menu.findItem(R.id.sort).isVisible = noItemSelected && activeSearchQuery == null
         menu.findItem(R.id.lock).isVisible = noItemSelected
         menu.findItem(R.id.close).isVisible = noItemSelected
@@ -697,10 +712,6 @@ open class BaseExplorerActivity : BaseActivity(), ExplorerElementAdapter.Listene
         return when (item.itemId) {
             android.R.id.home -> {
                 unselectAll()
-                true
-            }
-            R.id.search_files -> {
-                showFileSearchDialog()
                 true
             }
             R.id.sort -> {
