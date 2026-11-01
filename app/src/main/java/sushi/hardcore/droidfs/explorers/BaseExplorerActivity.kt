@@ -11,7 +11,6 @@ import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.addCallback
-import androidx.appcompat.widget.SearchView
 import androidx.core.view.isVisible
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -77,8 +76,6 @@ open class BaseExplorerActivity : BaseActivity(), ExplorerElementAdapter.Listene
     private var directoryRefreshJob: Job? = null
     private var activeSearchQuery: String? = null
     protected lateinit var explorerElements: MutableList<ExplorerElement>
-    private var allDirectoryElements: MutableList<ExplorerElement> = mutableListOf()
-    private var searchQuery = ""
     protected lateinit var explorerAdapter: ExplorerElementAdapter
     protected lateinit var app: VolumeManagerApp
     private var usf_open = false
@@ -347,18 +344,6 @@ open class BaseExplorerActivity : BaseActivity(), ExplorerElementAdapter.Listene
         invalidateOptionsMenu()
     }
 
-    private fun applySearchFilter() {
-        val query = searchQuery.trim()
-        explorerElements = if (query.isEmpty()) {
-            allDirectoryElements.toMutableList()
-        } else {
-            allDirectoryElements.filter { element ->
-                element.isParentFolder || element.name.contains(query, ignoreCase = true)
-            }.toMutableList()
-        }
-        textDirEmpty.visibility = if (explorerElements.isEmpty()) View.VISIBLE else View.GONE
-    }
-
     private fun displayExplorerElements() {
         ExplorerElement.sortBy(sortOrderValues[currentSortOrderIndex], foldersFirst, explorerElements)
         unselectAll(false)
@@ -401,40 +386,8 @@ open class BaseExplorerActivity : BaseActivity(), ExplorerElementAdapter.Listene
     }
 
     private fun startFileSearch(query: String) {
-        val normalizedQuery = query.trim()
-        if (normalizedQuery.isEmpty()) return
-        activeSearchQuery = normalizedQuery
-        val previousJob = directoryRefreshJob
-        directoryRefreshJob = lifecycleScope.launch {
-            previousJob?.cancelAndJoin()
-            recycler_view_explorer.isVisible = false
-            loader.isVisible = true
-            val results = withContext(Dispatchers.IO) {
-                val found = mutableListOf<ExplorerElement>()
-                val pending = ArrayDeque<String>()
-                pending.add("/")
-                val needle = normalizedQuery.lowercase(Locale.ROOT)
-                while (pending.isNotEmpty()) {
-                    val directory = pending.removeLast()
-                    val children = encryptedVolume.readDir(directory) ?: continue
-                    for (child in children) {
-                        if (child.name.lowercase(Locale.ROOT).contains(needle)) {
-                            found.add(child)
-                        }
-                        if (child.isDirectory) pending.add(child.fullPath)
-                    }
-                    yield()
-                }
-                found
-            }
-            explorerElements = results
-            currentPathText.text = getString(R.string.search_results_for, normalizedQuery)
-            textDirEmpty.visibility = if (results.isEmpty()) View.VISIBLE else View.GONE
-            displayNumberOfElements(numberOfFilesText, R.string.one_file, R.string.multiple_files, results.count { it.isRegularFile })
-            displayNumberOfElements(numberOfFoldersText, R.string.one_folder, R.string.multiple_folders, results.count { it.isDirectory })
-            totalSizeText.text = getString(R.string.search_result_count, results.size)
-            displayExplorerElements()
-        }
+        activeSearchQuery = query.trim().takeIf { it.isNotEmpty() }
+        refreshCurrentDirectory()
     }
 
     private fun showFileSearchDialog() {
@@ -450,19 +403,23 @@ open class BaseExplorerActivity : BaseActivity(), ExplorerElementAdapter.Listene
             previousJob?.cancelAndJoin()
             recycler_view_explorer.isVisible = false
             loader.isVisible = true
-            allDirectoryElements = encryptedVolume.readDir(currentDirectoryPath) ?: return@launch
+            val directoryElements = encryptedVolume.readDir(currentDirectoryPath) ?: return@launch
             if (currentDirectoryPath != "/") {
-                allDirectoryElements.add(
+                directoryElements.add(
                     0,
                     ExplorerElement("..", Stat.parentFolderStat(), parentPath = currentDirectoryPath)
                 )
             }
-            displayNumberOfElements(numberOfFilesText, R.string.one_file, R.string.multiple_files, allDirectoryElements.count { it.isRegularFile })
-            displayNumberOfElements(numberOfFoldersText, R.string.one_folder, R.string.multiple_folders, allDirectoryElements.count { it.isDirectory })
+            val query = activeSearchQuery
+            explorerElements = if (query == null) directoryElements else directoryElements.filter { element ->
+                element.isParentFolder || element.name.contains(query, ignoreCase = true)
+            }.toMutableList()
+            displayNumberOfElements(numberOfFilesText, R.string.one_file, R.string.multiple_files, explorerElements.count { it.isRegularFile })
+            displayNumberOfElements(numberOfFoldersText, R.string.one_folder, R.string.multiple_folders, explorerElements.count { it.isDirectory })
             var totalSize: Long = 0
             if (mapFolders) {
                 withContext(Dispatchers.IO) {
-                    for (element in explorerElements) {
+                    for (element in directoryElements) {
                         if (element.isDirectory) {
                             recursiveSetSize(element)
                         }
@@ -470,11 +427,10 @@ open class BaseExplorerActivity : BaseActivity(), ExplorerElementAdapter.Listene
                     }
                 }
             } else {
-                totalSize = explorerElements.filter { !it.isParentFolder }.sumOf { it.stat.size }
+                totalSize = directoryElements.filter { !it.isParentFolder }.sumOf { it.stat.size }
             }
-            applySearchFilter()
             displayExplorerElements()
-            totalSizeText.text = getString(R.string.total_size, PathUtils.formatSize(totalSize))
+            totalSizeText.text = if (query == null) getString(R.string.total_size, PathUtils.formatSize(totalSize)) else getString(R.string.search_result_count, explorerElements.size)
             onDisplayed?.invoke()
         }
     }
@@ -697,36 +653,6 @@ open class BaseExplorerActivity : BaseActivity(), ExplorerElementAdapter.Listene
     }
 
     override fun onCreateOptionsMenu(menu: Menu): Boolean {
-        val searchItem = menu.findItem(R.id.search_files)
-        val searchView = searchItem.actionView as SearchView
-        searchView.queryHint = getString(R.string.search_files_hint)
-        searchView.setOnQueryTextListener(object : SearchView.OnQueryTextListener {
-            override fun onQueryTextSubmit(query: String?): Boolean {
-                startFileSearch(query.orEmpty())
-                searchView.clearFocus()
-                return true
-            }
-
-            override fun onQueryTextChange(newText: String?): Boolean {
-                val query = newText.orEmpty()
-                if (query.isBlank()) {
-                    activeSearchQuery = null
-                    refreshCurrentDirectory()
-                } else {
-                    startFileSearch(query)
-                }
-                return true
-            }
-        })
-        searchItem.setOnActionExpandListener(object : MenuItem.OnActionExpandListener {
-            override fun onMenuItemActionExpand(item: MenuItem): Boolean = true
-            override fun onMenuItemActionCollapse(item: MenuItem): Boolean {
-                activeSearchQuery = null
-                currentPathText.text = getString(R.string.location, currentDirectoryPath)
-                refreshCurrentDirectory()
-                return true
-            }
-        })
         menu.findItem(R.id.rename).isVisible = false
         menu.findItem(R.id.open_as)?.isVisible = false
         if (usf_open){
