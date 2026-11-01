@@ -390,12 +390,6 @@ open class BaseExplorerActivity : BaseActivity(), ExplorerElementAdapter.Listene
         refreshCurrentDirectory()
     }
 
-    private fun showFileSearchDialog() {
-        EditTextDialog(this, R.string.search_files)
-            .onSubmit { query -> startFileSearch(query) }
-            .show()
-    }
-
     protected fun refreshCurrentDirectory(onDisplayed: (() -> Unit)? = null) {
         activeSearchQuery?.let { startFileSearch(it); return }
         val previousJob = directoryRefreshJob
@@ -684,10 +678,7 @@ open class BaseExplorerActivity : BaseActivity(), ExplorerElementAdapter.Listene
                 unselectAll()
                 true
             }
-            R.id.search -> {
-                showFileSearchDialog()
-                true
-            }
+            R.id.search_files -> true
             R.id.sort -> {
                 MaterialAlertDialogBuilder(this)
                         .setTitle(R.string.sort_order)
