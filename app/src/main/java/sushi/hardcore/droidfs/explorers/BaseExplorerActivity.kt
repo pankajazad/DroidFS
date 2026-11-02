@@ -137,6 +137,11 @@ open class BaseExplorerActivity : BaseActivity(), ExplorerElementAdapter.Listene
         setRecyclerViewLayout()
         onBackPressedDispatcher.addCallback(this) {
             if (explorerAdapter.selectedItems.isEmpty()) {
+                if (activeSearchQuery != null) {
+                    activeSearchQuery = null
+                    refreshCurrentDirectory()
+                    return@addCallback
+                }
                 val parentPath = PathUtils.getParentPath(currentDirectoryPath)
                 if (parentPath == currentDirectoryPath) {
                     isEnabled = false
@@ -660,6 +665,7 @@ open class BaseExplorerActivity : BaseActivity(), ExplorerElementAdapter.Listene
             setOnQueryTextListener(object : SearchView.OnQueryTextListener {
                 override fun onQueryTextSubmit(query: String): Boolean {
                     startFileSearch(query)
+                    clearFocus()
                     return true
                 }
 
@@ -668,10 +674,6 @@ open class BaseExplorerActivity : BaseActivity(), ExplorerElementAdapter.Listene
                     return true
                 }
             })
-            setOnCloseListener {
-                searchItem.collapseActionView()
-                true
-            }
         }
         searchItem.actionView = searchView
         searchItem.setOnActionExpandListener(object : MenuItem.OnActionExpandListener {
@@ -690,9 +692,6 @@ open class BaseExplorerActivity : BaseActivity(), ExplorerElementAdapter.Listene
                 return true
             }
         })
-        searchView.findViewById<View>(androidx.appcompat.R.id.search_close_btn)?.setOnClickListener {
-            searchItem.collapseActionView()
-        }
         menu.findItem(R.id.sort).isVisible = noItemSelected && activeSearchQuery == null
         menu.findItem(R.id.lock).isVisible = noItemSelected
         menu.findItem(R.id.close).isVisible = noItemSelected
